@@ -37,40 +37,41 @@ export async function decodeAudioData(
   return buffer;
 }
 
-export function speakText(text: string) {
+export async function speakText(text: string) {
   window.speechSynthesis.cancel();
   
   const voices = window.speechSynthesis.getVoices();
-  console.log("Available voices:", voices.map(v => `${v.name} (${v.lang})`));
+  const malayalamVoice = voices.find(v => v.lang.toLowerCase().includes('ml'));
 
-  const speak = () => {
-    console.log("Attempting to speak:", text);
+  if (text.match(/[\u0D00-\u0D7F]/) && malayalamVoice) {
     const utterance = new SpeechSynthesisUtterance(text);
-    
-    // Try to find a Malayalam voice
-    const malayalamVoice = voices.find(v => v.lang.toLowerCase().includes('ml'));
-
-    if (text.match(/[\u0D00-\u0D7F]/) && malayalamVoice) {
-      console.log("Using Malayalam voice:", malayalamVoice.name);
-      utterance.voice = malayalamVoice;
-    } else {
-      console.log("Using English voice");
-      utterance.lang = 'en-US';
-    }
-
-    utterance.onstart = () => console.log("Speech started");
-    utterance.onerror = (event) => console.error("Speech error:", event.error);
-    
+    utterance.voice = malayalamVoice;
     window.speechSynthesis.speak(utterance);
-  };
+    return;
+  }
 
-  // Ensure voices are loaded
-  if (voices.length === 0) {
-    window.speechSynthesis.onvoiceschanged = () => {
-      speak();
-      window.speechSynthesis.onvoiceschanged = null;
-    };
-  } else {
-    speak();
+  // Fallback to Cloud
+  try {
+      console.log("Attempting Cloud TTS...");
+      const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ text }),
+      });
+      if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Cloud TTS failed');
+      }
+      console.log("Cloud TTS success");
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.play();
+  } catch (error) {
+      console.error('TTS failed, falling back to browser English:', error);
+      // Fallback to browser English
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      window.speechSynthesis.speak(utterance);
   }
 }
